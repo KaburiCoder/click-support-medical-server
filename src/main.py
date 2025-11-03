@@ -3,11 +3,13 @@ from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import sys
 from src.api.main import api_router
+from src.core.exceptions.handlers import register_exception_handlers
 
 if sys.platform != "win32":
-    import asyncio
-    import uvloop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+  import asyncio
+  import uvloop
+  asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,5 +37,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Exception Handler 등록
+register_exception_handlers(app)
 
 app.include_router(router=api_router, prefix="/api")
