@@ -27,7 +27,7 @@ async def vs(
   return await service.vs_summary(dto)
 
 
-@router.post("/all", response_model=AllResult)
+@router.post("/patient/summary", response_model=AllResult)
 async def all_summary(
     dto: ChartTermRequestDto,
     service: MedicalServiceDep
