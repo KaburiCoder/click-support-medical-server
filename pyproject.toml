@@ -13,6 +13,7 @@ dependencies = [
     "pandas>=2.3.3",
     "pydantic-settings>=2.11.0",
     "pydantic[email]>=2.12.3",
+    "python-socketio[asyncio]>=5.14.3",
     "sqlalchemy>=2.0.44",
     "sqlalchemy-to-pydantic>=0.0.8",
     "tabulate>=0.9.0",

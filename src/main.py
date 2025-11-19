@@ -1,9 +1,10 @@
+import sys
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-import sys
 from src.api.main import api_router
 from src.core.exceptions.handlers import register_exception_handlers
+from src.sio import get_socketio_app, register_all_namespaces
 
 if sys.platform != "win32":
   import asyncio
@@ -15,6 +16,10 @@ if sys.platform != "win32":
 async def lifespan(app: FastAPI):
   # 시작할 때 리소스 초기화
   print("애플리케이션 시작: 모델 로딩 중...")
+
+  # Socket.IO 이벤트 설정
+  register_all_namespaces()
+  print("Socket.IO 설정 완료")
 
   yield  # FastAPI 애플리케이션 실행
 
@@ -42,3 +47,6 @@ app.add_middleware(
 register_exception_handlers(app)
 
 app.include_router(router=api_router, prefix="/api")
+
+# Socket.IO와 FastAPI를 통합한 ASGI 앱
+asgi_app = get_socketio_app(app)
