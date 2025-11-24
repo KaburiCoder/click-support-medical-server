@@ -55,6 +55,14 @@ class Medication(TypedDict):
   administration: str          # 용법
   note: str                    # 참고사항
 
+class Lab(TypedDict):
+  ymd: str
+  testName: str
+  subTestName: str
+  resultValue: str
+  unit: str
+  normalRange: str
+  note: str
 
 class SummarizePatientRequest(TypedDict):
   patientInfo: PatientInfo

@@ -2,7 +2,7 @@
 from src.sio.config import sio
 from src.sio.base import BaseNamespace
 from src.sio.features.medical import medical_graph
-from src.sio.features.medical.dto import PatientSummaryResponse, ProgressNoteResult, SummarizePatientRequest, VsNsSummaryResult
+from src.sio.features.medical.dto import PatientSummaryResponse, PrescriptionSummaryResult, ProgressNoteResult, SummarizePatientRequest, VsNsSummaryResult, LabSummaryResult
 
 
 class MedicalNamespace(BaseNamespace):
@@ -44,30 +44,33 @@ class MedicalNamespace(BaseNamespace):
           f"[{self.namespace}] summarize_patient - sid: {sid}, patient_id: {to}, data: {data}")
 
       # 환자 정보 전송
-      patient_data_response = await self.emit_with_ack("patient_data", data["patientInfo"], to=to)
+      await self.emit_with_ack("patient_data", data["patientInfo"], to=to)
+
+      # 처리 중 상태 전송
       await self.emit("loading", {"status": "processing"}, room=to)
 
       result = await medical_graph.workflow.ainvoke({
-          "data": {
-              "nursingRecords": data['nursingRecords'],
-              "vitalSigns": data["vitalSigns"],
-              "progressNotes": data["progressNotes"]
-          }
+          "data": data
       })
       # room의 모든 클라이언트로부터 응답 수집
 
       # Pydantic 모델을 dict로 변환 (JSON 직렬화 가능)
       progress_notes_summary: ProgressNoteResult = result['progress_notes_summary']
       vs_ns_summary: VsNsSummaryResult = result["vs_ns_summary"]
+      prescription_summary: PrescriptionSummaryResult = result["prescription_summary"]
+      lab_summary: LabSummaryResult = result["lab_summary"]
 
       response = PatientSummaryResponse(
           progress_notes_summary=progress_notes_summary,
-          vs_ns_summary=vs_ns_summary
+          vs_ns_summary=vs_ns_summary,
+          prescription_summary=prescription_summary,
+          lab_summary=lab_summary
       )
       responses = await self.emit_with_ack(
           "summarize_patient",
           response.model_dump(by_alias=True),
           to=to)
 
+      # 완료 상태 전송
       await self.emit("loading", {"status": "done"}, room=to)
       print(f"[{self.namespace}] room 응답 결과: {responses}")

@@ -1,1 +1,1 @@
-from .carmel_model import CarmelModel
+from .camel_model import CamelModel
