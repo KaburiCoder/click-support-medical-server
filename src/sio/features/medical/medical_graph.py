@@ -129,8 +129,8 @@ async def create_prescription_summary(state: MedicalGraphState) -> MedicalGraphS
   for med in medications:
     med_info = f"""### {med['medicationName']}
 - **투여 기간**: {med['sYmd']} ~ {med['eYmd']} ({med['totalDays']}일)
-- **투여 경로**: {med['route']}
-- **용량**: 1회 {med['dose']}회, {med['frequency']}회/일
+- **일회투약량**: {med['dose']}
+- **횟수**: {med['frequency']}회/일
 - **용법**: {med['administration']}
 - **참고사항**: {med['note'] or '없음'}"""
     medication_details.append(med_info)

@@ -25,7 +25,7 @@ class ProgressNoteResult(CamelModel):
 
 
 class VsNsSummaryResult(CamelModel):
-  vs_score: int = Field(..., description="Vital Sign 종합 점수(1-5점)", ge=1, le=5)
+  vs_score: int = Field(..., description="Vital Sign 점수 높을수록 좋음 (1-5점)", ge=1, le=5)
   vs_summary: str = Field(...,
                           description="Vital Sign 종합 요약(Markdown 형식 - `\\n` 줄바꿈 없이)")
   vs_details: list["VsSummaryDetail"] = Field(
@@ -63,7 +63,7 @@ class VsSummaryDetail(CamelModel):
   trend: str = Field(..., description="최근 변화 추이")
   trend_level: Literal['stable', 'increasing', 'decreasing',
                        'unknown'] = Field(..., description="추이 수준")
-  remark: str | None = Field(None, description="특이사항 (예: 최고치 기록, 저혈압 주의)")
+  remark: str | None = Field(None, description="특이사항 (예: 최고치 기록, 저혈압 주의). 정상인 경우 미기재")
 
 
 class NsCarePlan(CamelModel):
@@ -98,7 +98,6 @@ class PrescriptionAnalysisDetail(CamelModel):
 
 class MajorMedicationDetail(CamelModel):
   medication_name: str = Field(..., description="약품명")
-  dose: float = Field(..., description="1회 투약량(1일 기준)")
   frequency: int = Field(..., description="1일 투약 횟수")
   total_days: int = Field(..., description="총 투약일수")
   note: str = Field(..., description="참고사항 (용법, 특이사항 등)")
