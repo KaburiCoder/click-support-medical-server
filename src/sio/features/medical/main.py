@@ -1,8 +1,9 @@
 """의료 관련 네임스페이스"""
+from typing import get_type_hints
 from src.sio.config import sio
 from src.sio.base import BaseNamespace
 from src.sio.features.medical import medical_graph
-from src.sio.features.medical.dto import PatientSummaryResponse, PrescriptionSummaryResult, ProgressNoteResult, SummarizePatientRequest, VsNsSummaryResult, LabSummaryResult
+from src.sio.features.medical.dto import Loading, PatientSummaryResponse, PrescriptionSummaryResult, ProgressNoteResult, SummarizePatientRequest, VsNsSummaryResult, LabSummaryResult
 
 
 class MedicalNamespace(BaseNamespace):
@@ -46,10 +47,17 @@ class MedicalNamespace(BaseNamespace):
       # 환자 정보 전송
       await self.emit_with_ack("patient_data", data["patientInfo"], to=to)
 
+      # === 로딩 상태 전송 함수 정의 ===
+      async def send_loading(loading: Loading) -> None:
+        """로딩 상태 전송"""
+        await self.emit("loading", loading.to_json(), room=to)
+
       # 처리 중 상태 전송
-      await self.emit("loading", {"status": "processing"}, room=to)
+
+      await send_loading(Loading(status="processing"))
 
       result = await medical_graph.workflow.ainvoke({
+          "send_loading": send_loading,
           "data": data
       })
       # room의 모든 클라이언트로부터 응답 수집
@@ -72,5 +80,6 @@ class MedicalNamespace(BaseNamespace):
           to=to)
 
       # 완료 상태 전송
-      await self.emit("loading", {"status": "done"}, room=to)
+      await send_loading(Loading(status="done"))
+
       print(f"[{self.namespace}] room 응답 결과: {responses}")

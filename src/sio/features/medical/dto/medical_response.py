@@ -150,15 +150,19 @@ class PrescriptionSummaryResult(CamelModel):
       ..., description="우선순위별 의료진 조치 권고사항 (최대 5개)")
 
 # =-=-==-=-= 검사 =-=-==-=-=
+
+
 class LabGroup(CamelModel):
   date: str = Field(..., description="검사 일자(yyyy-MM-dd)")
   group_details: list["LabGroupDetail"] = Field(
       ..., description="검사 그룹별 상세 항목들")
 
+
 class LabGroupDetail(CamelModel):
   test_group_name: str = Field(..., description="검사 그룹명(예: 일반혈액검사, 간기능검사 등)")
   labs: list["LabDetail"] = Field(
       ..., description="그룹에 속한 주요 검사 항목들")
+
 
 class LabDetail(CamelModel):
   test_name: str = Field(..., description="검사명")
@@ -169,7 +173,7 @@ class LabDetail(CamelModel):
   status: Literal["normal", "up", "down", "critical_up", "critical_down"] = Field(
       ..., description="검사 결과 상태"
   )
-  ai_comment: str = Field(..., description="AI 권장 소견")
+  ai_comment: str = Field(..., description='AI 권장 소견(정상은 빈문자열("")로 표시)')
 
 
 class LabAbnormalityAlert(CamelModel):
@@ -224,51 +228,51 @@ class LabClinicalImplication(CamelModel):
 class LabSummaryResult(CamelModel):
   major_labs: list[LabGroup] = Field(
       ..., description="주요 검사 그룹 목록")
-  
+
   # AI 분석 결과 - 이상 항목 강조
   abnormality_alerts: list[LabAbnormalityAlert] = Field(
       default_factory=list,
       description="이상 검사 항목 알림 (우선순위 내림차순)"
   )
-  
+
   # AI 분석 결과 - 추세 분석
   trend_analyses: list[LabTrendAnalysis] = Field(
       default_factory=list,
       description="주요 검사 항목 시계열 추세 분석"
   )
-  
+
   # AI 분석 결과 - 카테고리별 임상 해석
   clinical_implications: list[LabClinicalImplication] = Field(
       default_factory=list,
       description="검사 카테고리별 임상적 해석 및 권고사항"
   )
-  
+
   # AI 분석 결과 - 종합 의견
   overall_assessment: str = Field(
       ..., description="전체 검사 결과 종합 의견 및 임상 판단"
   )
-  
+
   # AI 분석 결과 - 최우선 권고
   priority_recommendation: str = Field(
       ..., description="의료진에게 전달할 가장 중요한 한 줄 조치 권고"
   )
-  
+
   # AI 분석 결과 - 위험도 평가
   lab_risk_level: Literal["normal", "caution", "warning", "critical"] = Field(
       ..., description="검사 결과 기반 종합 위험도"
   )
-  
+
   # 최근 검사 정보
   latest_test_date: str = Field(..., description="최근 검사 일자 (yyyy-MM-dd)")
   test_count: int = Field(..., description="조회 기간 내 총 검사 횟수")
-  
+
 
 class PatientSummaryResponse(CamelModel):
-  progress_notes_summary: ProgressNoteResult=Field(
+  progress_notes_summary: ProgressNoteResult = Field(
       ..., description="경과기록 요약 정보")
-  vs_ns_summary: VsNsSummaryResult=Field(
+  vs_ns_summary: VsNsSummaryResult = Field(
       ..., description="활력징후 및 간호기록 요약 정보")
-  prescription_summary: PrescriptionSummaryResult=Field(
+  prescription_summary: PrescriptionSummaryResult = Field(
       ..., description="처방, 상병 요약 정보")
-  lab_summary: LabSummaryResult=Field(
+  lab_summary: LabSummaryResult = Field(
       ..., description="검사 결과 요약 정보")

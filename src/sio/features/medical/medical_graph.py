@@ -1,4 +1,6 @@
-from typing import TypedDict
+import pandas as pd
+
+from typing import Awaitable, Callable, TypedDict
 
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage
@@ -7,14 +9,15 @@ from langgraph.graph import StateGraph
 
 from src.constants import llm_models
 
-from src.sio.features.medical.dto.medical_request import SummarizePatientRequest
+from src.sio.features.medical.dto.medical_request import DiagnosisRecord, SummarizePatientRequest
 from src.utils.format_util import hm_to_time, ymd_to_date
 
-from src.sio.features.medical.dto import DiagnosisRecord, Medication, PatientInfo, ProgressNote, ProgressNoteResult, VitalSign, NursingRecord, VsNsSummaryResult, PrescriptionSummaryResult, LabSummaryResult, Lab
+from src.sio.features.medical.dto import Loading, ProgressNoteResult, VsNsSummaryResult, PrescriptionSummaryResult, LabSummaryResult, Lab
 from src.sio.features.medical.models import NsModels, VsModel, VsModels
 
 
 class MedicalGraphState(TypedDict, total=False):
+  send_loading: Callable[[Loading], Awaitable[None]]
   data: 'Data'
   progress_notes_summary: ProgressNoteResult
   vs_ns_summary: VsNsSummaryResult
@@ -49,6 +52,10 @@ async def create_progressnote_summary(state: MedicalGraphState) -> MedicalGraphS
   })
 
   result: ProgressNoteResult = response['structured_response']
+
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="progress_notes"))
+
   return {"progress_notes_summary": result}
 
 
@@ -95,6 +102,10 @@ async def create_ns_vs_summary(state: MedicalGraphState) -> MedicalGraphState:
   })
 
   result: VsNsSummaryResult = response['structured_response']
+
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="ns_vs"))
+
   return {"vs_ns_summary": result}
 
 
@@ -168,13 +179,19 @@ async def create_prescription_summary(state: MedicalGraphState) -> MedicalGraphS
   })
 
   result: PrescriptionSummaryResult = response['structured_response']
+
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="prescriptions"))
+
   return {"prescription_summary": result}
+
 
 async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
   labs = state.get('data', {}).get('labs', [])
   patient_info = state.get('data', {}).get('patientInfo', {})
-  diagnosis_records = state.get('data', {}).get('diagnosisRecords', [])
-  
+  diagnosis_records: list[DiagnosisRecord] = state.get(
+      'data', {}).get('diagnosisRecords', [])
+
   if not labs:
     return {}
 
@@ -185,26 +202,31 @@ async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
 - 나이: {patient_info.get('age', '')}
   """.strip()
 
-  # 최근 검사 정보 추출
-  latest_test_date = labs[0]['ymd'] if labs else ''
-  
-  # 진단 정보
-  recent_diagnoses = []
-  if diagnosis_records:
-    recent_diagnoses = diagnosis_records[-1].get('diagnoses', [])
-  diagnoses_text = ", ".join(
-      [f"{d['diagnosisName']} ({d['icdCode']})" for d in recent_diagnoses]
-  ) if recent_diagnoses else "진단 기록 없음"
+  # === 진단 정보 ===
+  # 진단 기록을 마크다운 테이블로 변환
+  diagnosis_rows = []
+  for diagnosis in diagnosis_records:
+    ymd = diagnosis.get('ymd', '')
+    diagnoses = diagnosis.get('diagnoses', [])
+    for diag in diagnoses:
+      icd_code = diag.get('icdCode', '')
+      diagnosis_name = diag.get('diagnosisName', '')
+      diagnosis_rows.append({'일자': ymd, 'ICD 코드': icd_code, '진단명': diagnosis_name})
 
-  # 검사 정보를 마크다운 테이블 형식으로 변환
-  lab_details = []
-  for lab in labs:
-    lab_detail = f"""| {lab['testName']} | {lab['subTestName']} | {lab['resultValue']} | {lab['unit']} | {lab['normalRange']} | {lab['note'] or '없음'} |"""
-    lab_details.append(lab_detail)
+  if diagnosis_rows:
+    df_diag = pd.DataFrame(diagnosis_rows)
+    diagnoses_text = df_diag.to_markdown(index=False)
+  else:
+    diagnoses_text = "진단 기록 없음"
+ 
+  # === 검사 목록 ===
+  latest_test_date = max(lab['ymd'] for lab in labs)
 
-  labs_markdown = """| 검사 분류 | 검사 항목 | 결과값 | 단위 | 정상범위 | 비고 |
-|----------|---------|--------|------|---------|------|
-""" + "\n".join(lab_details)
+  # 검사 목록 Markdown으로 변환
+  df = pd.DataFrame([lab for lab in labs])
+  df = df.rename(columns={
+      "ymd": "검사일자(yyyyMMdd)"})
+  labs_markdown = df.to_markdown(index=False)
 
   system_prompt = """당신은 임상병리사이자 의료 데이터 분석 전문가입니다.
 환자의 검사 결과를 분석하여 다음 사항들을 평가합니다:
@@ -253,7 +275,9 @@ async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
   })
 
   result: LabSummaryResult = response['structured_response']
-  dump_data = result.model_dump(by_alias=True)
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="labs"))
+
   return {"lab_summary": result}
 
 # ! === Define the workflow structure === #

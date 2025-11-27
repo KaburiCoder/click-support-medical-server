@@ -71,3 +71,4 @@ class SummarizePatientRequest(TypedDict):
   vitalSigns: list[VitalSign]
   medications: list[Medication]
   diagnosisRecords: list[DiagnosisRecord]
+  labs: list[Lab]
