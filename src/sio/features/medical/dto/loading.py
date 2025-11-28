@@ -6,7 +6,8 @@ from src.common import CamelModel
 type LoadingStatus = Literal["processing", "done"]
 type LoadingCompleteTarget = Literal[
     "progress_notes", "ns_vs",
-    "prescriptions", "labs"]
+    "prescriptions", "labs",
+    "radiology"]
 
 
 class Loading(CamelModel):

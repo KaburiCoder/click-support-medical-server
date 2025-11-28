@@ -2,6 +2,7 @@ from pydantic import Field
 from typing import Optional, Literal
 
 from src.common import CamelModel
+from src.sio.features.medical.dto.radiology_dto import RadiologyAnalysisSummary
 
 
 class SOAP(CamelModel):
@@ -275,3 +276,5 @@ class PatientSummaryResponse(CamelModel):
       ..., description="처방, 상병 요약 정보")
   lab_summary: LabSummaryResult = Field(
       ..., description="검사 결과 요약 정보")
+  radiology_summary: Optional[RadiologyAnalysisSummary] = Field(
+      None, description="방사선 판독 분석 요약 정보 (방사선 데이터 있을 시)")

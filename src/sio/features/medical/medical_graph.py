@@ -12,7 +12,15 @@ from src.constants import llm_models
 from src.sio.features.medical.dto.medical_request import DiagnosisRecord, SummarizePatientRequest
 from src.utils.format_util import hm_to_time, ymd_to_date
 
-from src.sio.features.medical.dto import Loading, ProgressNoteResult, VsNsSummaryResult, PrescriptionSummaryResult, LabSummaryResult, Lab
+from src.sio.features.medical.dto import (
+    Loading, 
+    ProgressNoteResult, 
+    VsNsSummaryResult, 
+    PrescriptionSummaryResult, 
+    LabSummaryResult, 
+    RadiologyReport,
+    RadiologyAnalysisSummary, 
+)
 from src.sio.features.medical.models import NsModels, VsModel, VsModels
 
 
@@ -23,6 +31,7 @@ class MedicalGraphState(TypedDict, total=False):
   vs_ns_summary: VsNsSummaryResult
   prescription_summary: PrescriptionSummaryResult
   lab_summary: LabSummaryResult
+  radiology_summary: RadiologyAnalysisSummary
 
 
 class Data(SummarizePatientRequest, total=False):
@@ -280,19 +289,151 @@ async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
 
   return {"lab_summary": result}
 
+# ! === 방사선 판독 분석 통합 노드 === #
+
+async def create_radiology_analysis_summary(state: MedicalGraphState) -> MedicalGraphState:
+  """방사선 판독 분석 통합 (단일 + 진행 + 통합 분석) - 1번의 AI 호출로 수행"""
+  reports: list[RadiologyReport] = state.get('data', {}).get('radiologyReports', [])
+  if not reports:
+    return {}
+  
+  patient_info = state.get('data', {}).get('patientInfo', {})
+  patient_context = f"{patient_info.get('name', '')} ({patient_info.get('sex', '')}/{patient_info.get('age', '')})"
+  
+  # === 통합 분석용 프롬프트 준비 ===
+  
+  # 1. 단일 검사 분석용 데이터
+  report: RadiologyReport | None = reports[0] if reports else None
+  single_exam_context = ""
+  if report:
+    single_exam_context = f"""
+
+## [단일 검사 분석 데이터]
+검사일시: {report['ymd']} {report['time']}
+검사종류: {report['modality']}
+검사부위: {report['examType']}
+임상소견: {report['findings']}"""
+  
+  # 2. 진행 추이 분석용 데이터
+  progression_context = ""
+  if len(reports) >= 2:
+    sorted_reports = sorted(reports, key=lambda x: x['ymd'])
+    progression_context = "\n## [진행 추이 분석 데이터]\n검사 기록 (시간순):\n"
+    for i, r in enumerate(sorted_reports, 1):
+      progression_context += f"""
+{i}. {r['ymd']} {r['time']}
+   - 검사: {r['modality']} ({r['examType']})
+   - 소견: {r['findings']}"""
+  
+  # 3. 통합 임상 분석용 데이터
+  # 활력징후 정보
+  vss = state.get('data', {}).get('vitalSigns', [])
+  vs_list = VsModels()
+  vs_list.add_recently_from_vss(vss)
+  vital_signs_context = vs_list.get_markdown_table() if vss else "없음"
+  
+  # 혈액검사 정보
+  labs = state.get('data', {}).get('labs', [])
+  lab_data_context = "\n".join([f"- {lab['testName']} ({lab['subTestName']}): {lab['resultValue']} {lab['unit']}" for lab in labs[:10]]) if labs else "없음"
+  
+  # 투약 정보
+  medications = state.get('data', {}).get('medications', [])
+  medication_context = "\n".join([f"- {med['medicationName']}: {med['dose']} x {med['frequency']}회/일" for med in medications[:10]]) if medications else "없음"
+  
+  sorted_reports = sorted(reports, key=lambda x: x['ymd'])
+  
+  # === 통합 프롬프트 구성 ===
+  unified_prompt = f"""
+# 종합 방사선 판독 분석
+
+## 환자 정보
+{patient_context}
+{single_exam_context}
+{progression_context}
+
+## [통합 임상 분석 데이터]
+### 활력징후
+{vital_signs_context}
+
+### 혈액 검사
+{lab_data_context}
+
+### 투약 정보
+{medication_context}
+
+### 모든 방사선 판독 결과 (시간순)
+"""
+  
+  for i, r in enumerate(sorted_reports, 1):
+    unified_prompt += f"""
+{i}. {r['ymd']} - {r['modality']} ({r['examType']})
+   **임상소견**: {r['findings']}
+"""
+  
+  # === 통합 AI 호출 ===
+  agent = create_agent(
+      model=llm_models.gemini_flash,
+      response_format=RadiologyAnalysisSummary,
+      system_prompt="""당신은 경험 많은 방사선과 의사입니다.
+제시된 방사선 판독 결과를 종합적으로 분석하여 다음 3가지를 동시에 수행합니다:
+
+## 1. [필수] 단일 검사 분석 (summary 필드)
+- 주요 소견
+- 임상적 의미
+- 질병 진행 상황
+- 긴급 소견 리스트
+- 권장 추적 또는 추가 검사
+- 후속 계획
+- 임상의학적 의견
+
+## 2. [조건부] 진행 추이 분석 (progression 필드)
+- 검사 기록이 2개 이상인 경우만 작성
+- 전체 진행 추세 (improvement/stable/progression)
+- 주요 변화 사항들 (시간순)
+- 질병 진행 타임라인
+- 향후 예상 결과
+- 임상적 의미
+- 권장 후속 조치
+
+## 3. [필수] 통합 임상 분석 (integrated_analysis 필드)
+- 방사선 소견과 활력징후의 연관성
+- 혈액 검사 결과와의 일치성
+- 투약 반응도 평가
+- 현재 환자의 질병 상태 종합 평가
+- 질병 진행 양상과 치료 반응도
+- 종합 진단 평가 및 필요한 조정 사항
+- 우선순위별 추적 관찰 계획과 필요한 추가 검사
+- 종합 위험도 평가 (low/moderate/high/critical)
+
+## 응답 규칙:
+- progression 필드: 검사 기록이 1개이면 null로 반환, 2개 이상이면 작성
+- summary와 integrated_analysis: 항상 작성""")
+  
+  response = await agent.ainvoke({
+      "messages": [HumanMessage(content=unified_prompt)]
+  })
+   
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="radiology"))
+  
+  return {"radiology_summary":  response['structured_response']}
+
 # ! === Define the workflow structure === #
 builder.add_node('create_progressnote_summary', create_progressnote_summary)
 builder.add_node('create_ns_vs_summary', create_ns_vs_summary)
 builder.add_node('create_prescription_summary', create_prescription_summary)
 builder.add_node('create_lab_summary', create_lab_summary)
+builder.add_node('create_radiology_analysis_summary', create_radiology_analysis_summary)
 
 builder.add_edge(START, 'create_progressnote_summary')
 builder.add_edge(START, 'create_ns_vs_summary')
 builder.add_edge(START, 'create_prescription_summary')
 builder.add_edge(START, 'create_lab_summary')
+builder.add_edge(START, 'create_radiology_analysis_summary')
 
 builder.add_edge('create_progressnote_summary', END)
 builder.add_edge('create_ns_vs_summary', END)
 builder.add_edge('create_prescription_summary', END)
 builder.add_edge('create_lab_summary', END)
+builder.add_edge('create_radiology_analysis_summary', END)
 workflow = builder.compile()

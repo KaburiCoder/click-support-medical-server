@@ -3,7 +3,15 @@ from typing import get_type_hints
 from src.sio.config import sio
 from src.sio.base import BaseNamespace
 from src.sio.features.medical import medical_graph
-from src.sio.features.medical.dto import Loading, PatientSummaryResponse, PrescriptionSummaryResult, ProgressNoteResult, SummarizePatientRequest, VsNsSummaryResult, LabSummaryResult
+from src.sio.features.medical.dto import (
+    Loading, 
+    PatientSummaryResponse, 
+    PrescriptionSummaryResult, 
+    ProgressNoteResult, 
+    SummarizePatientRequest, 
+    VsNsSummaryResult, 
+    LabSummaryResult,
+)
 
 
 class MedicalNamespace(BaseNamespace):
@@ -72,7 +80,8 @@ class MedicalNamespace(BaseNamespace):
           progress_notes_summary=progress_notes_summary,
           vs_ns_summary=vs_ns_summary,
           prescription_summary=prescription_summary,
-          lab_summary=lab_summary
+          lab_summary=lab_summary,
+          radiology_summary=result.get('radiology_summary')
       )
       responses = await self.emit_with_ack(
           "summarize_patient",
@@ -83,3 +92,43 @@ class MedicalNamespace(BaseNamespace):
       await send_loading(Loading(status="done"))
 
       print(f"[{self.namespace}] room 응답 결과: {responses}")
+
+    @sio.event(namespace=self.namespace)
+    async def query_radiology_analysis(sid: str, to: str, data: SummarizePatientRequest):
+      """방사선 판독 분석만 단독으로 쿼리"""
+      print(f"[{self.namespace}] query_radiology_analysis - sid: {sid}, patient_id: {to}")
+
+      # === 로딩 상태 전송 함수 정의 ===
+      async def send_loading(loading: Loading) -> None:
+        """로딩 상태 전송"""
+        await self.emit("loading", loading.to_json(), room=to)
+
+      await send_loading(Loading(status="processing"))
+
+      try:
+        result = await medical_graph.workflow.ainvoke({
+            "send_loading": send_loading,
+            "data": data
+        })
+
+        # 방사선 분석 결과만 추출
+        radiology_summary = result.get('radiology_summary')
+        radiology_progression = result.get('radiology_progression')
+        integrated_radiology = result.get('integrated_radiology_analysis')
+
+        response = {
+            "radiology_summary": radiology_summary.model_dump(by_alias=True) if radiology_summary else None,
+            "radiology_progression": radiology_progression.model_dump(by_alias=True) if radiology_progression else None,
+            "integrated_radiology_analysis": integrated_radiology.model_dump(by_alias=True) if integrated_radiology else None
+        }
+
+        await self.emit_with_ack(
+            "query_radiology_analysis",
+            response,
+            to=to)
+
+        await send_loading(Loading(status="done"))
+
+      except Exception as e:
+        print(f"[{self.namespace}] query_radiology_analysis 오류: {str(e)}")
+        await self.emit("error", {"message": str(e)}, room=to)

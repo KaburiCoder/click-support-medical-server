@@ -1,4 +1,5 @@
 from typing import TypedDict
+from src.sio.features.medical.dto.radiology_dto import RadiologyReport
 
 class PatientInfo(TypedDict):
   name: str
@@ -72,3 +73,4 @@ class SummarizePatientRequest(TypedDict):
   medications: list[Medication]
   diagnosisRecords: list[DiagnosisRecord]
   labs: list[Lab]
+  radiologyReports: list[RadiologyReport]
