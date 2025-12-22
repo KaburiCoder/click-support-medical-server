@@ -1,15 +1,16 @@
 """의료 관련 네임스페이스"""
-from typing import get_type_hints
+from typing import get_type_hints, Optional
 from src.sio.config import sio
 from src.sio.base import BaseNamespace
 from src.sio.features.medical import medical_graph
 from src.sio.features.medical.dto import (
-    Loading, 
-    PatientSummaryResponse, 
-    PrescriptionSummaryResult, 
-    ProgressNoteResult, 
-    SummarizePatientRequest, 
-    VsNsSummaryResult, 
+    LawData,
+    Loading,
+    PatientSummaryResponse,
+    PrescriptionSummaryResult,
+    ProgressNoteResult,
+    SummarizePatientRequest,
+    VsNsSummaryResult,
     LabSummaryResult,
 )
 
@@ -71,17 +72,20 @@ class MedicalNamespace(BaseNamespace):
       # room의 모든 클라이언트로부터 응답 수집
 
       # Pydantic 모델을 dict로 변환 (JSON 직렬화 가능)
-      progress_notes_summary: ProgressNoteResult = result['progress_notes_summary']
-      vs_ns_summary: VsNsSummaryResult = result["vs_ns_summary"]
-      prescription_summary: PrescriptionSummaryResult = result["prescription_summary"]
-      lab_summary: LabSummaryResult = result["lab_summary"]
+      progress_notes_summary: Optional[ProgressNoteResult] = result.get(
+          'progress_notes_summary')
+      vs_ns_summary: Optional[VsNsSummaryResult] = result.get("vs_ns_summary")
+      prescription_summary: Optional[PrescriptionSummaryResult] = result.get(
+          "prescription_summary")
+      lab_summary: Optional[LabSummaryResult] = result.get("lab_summary")
 
       response = PatientSummaryResponse(
           progress_notes_summary=progress_notes_summary,
           vs_ns_summary=vs_ns_summary,
           prescription_summary=prescription_summary,
           lab_summary=lab_summary,
-          radiology_summary=result.get('radiology_summary')
+          radiology_summary=result.get('radiology_summary'),
+          law_data=LawData(vital_signs=data['vitalSigns'])
       )
       responses = await self.emit_with_ack(
           "summarize_patient",
@@ -96,7 +100,8 @@ class MedicalNamespace(BaseNamespace):
     @sio.event(namespace=self.namespace)
     async def query_radiology_analysis(sid: str, to: str, data: SummarizePatientRequest):
       """방사선 판독 분석만 단독으로 쿼리"""
-      print(f"[{self.namespace}] query_radiology_analysis - sid: {sid}, patient_id: {to}")
+      print(
+          f"[{self.namespace}] query_radiology_analysis - sid: {sid}, patient_id: {to}")
 
       # === 로딩 상태 전송 함수 정의 ===
       async def send_loading(loading: Loading) -> None:

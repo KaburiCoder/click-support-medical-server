@@ -2,6 +2,7 @@ from pydantic import Field
 from typing import Optional, Literal
 
 from src.common import CamelModel
+from src.sio.features.medical.dto.medical_request import VitalSign
 from src.sio.features.medical.dto.radiology_dto import RadiologyAnalysisSummary
 
 
@@ -26,7 +27,8 @@ class ProgressNoteResult(CamelModel):
 
 
 class VsNsSummaryResult(CamelModel):
-  vs_score: int = Field(..., description="Vital Sign 점수 높을수록 좋음 (1-5점)", ge=1, le=5)
+  vs_score: int = Field(...,
+                        description="Vital Sign 점수 높을수록 좋음 (1-5점)", ge=1, le=5)
   vs_summary: str = Field(...,
                           description="Vital Sign 종합 요약(Markdown 형식 - `\\n` 줄바꿈 없이)")
   vs_details: list["VsSummaryDetail"] = Field(
@@ -64,7 +66,8 @@ class VsSummaryDetail(CamelModel):
   trend: str = Field(..., description="최근 변화 추이")
   trend_level: Literal['stable', 'increasing', 'decreasing',
                        'unknown'] = Field(..., description="추이 수준")
-  remark: str | None = Field(None, description="특이사항 (예: 최고치 기록, 저혈압 주의). 정상인 경우 미기재")
+  remark: str | None = Field(
+      None, description="특이사항 (예: 최고치 기록, 저혈압 주의). 정상인 경우 미기재")
 
 
 class NsCarePlan(CamelModel):
@@ -267,14 +270,19 @@ class LabSummaryResult(CamelModel):
   test_count: int = Field(..., description="조회 기간 내 총 검사 횟수")
 
 
+class LawData(CamelModel):
+  vital_signs: list[VitalSign]
+
+
 class PatientSummaryResponse(CamelModel):
-  progress_notes_summary: ProgressNoteResult = Field(
-      ..., description="경과기록 요약 정보")
-  vs_ns_summary: VsNsSummaryResult = Field(
-      ..., description="활력징후 및 간호기록 요약 정보")
-  prescription_summary: PrescriptionSummaryResult = Field(
-      ..., description="처방, 상병 요약 정보")
-  lab_summary: LabSummaryResult = Field(
-      ..., description="검사 결과 요약 정보")
+  progress_notes_summary: Optional[ProgressNoteResult] = Field(
+      None, description="경과기록 요약 정보")
+  vs_ns_summary: Optional[VsNsSummaryResult] = Field(
+      None, description="활력징후 및 간호기록 요약 정보")
+  prescription_summary: Optional[PrescriptionSummaryResult] = Field(
+      None, description="처방, 상병 요약 정보")
+  lab_summary: Optional[LabSummaryResult] = Field(
+      None, description="검사 결과 요약 정보")
   radiology_summary: Optional[RadiologyAnalysisSummary] = Field(
       None, description="방사선 판독 분석 요약 정보 (방사선 데이터 있을 시)")
+  law_data: LawData
