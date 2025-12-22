@@ -2,7 +2,6 @@ import sys
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.main import api_router
 from src.core.exceptions.handlers import register_exception_handlers
 from src.sio import get_socketio_app, register_all_namespaces
 
@@ -46,7 +45,7 @@ app.add_middleware(
 # Exception Handler 등록
 register_exception_handlers(app)
 
-app.include_router(router=api_router, prefix="/api")
+# app.include_router(router=api_router, prefix="/api")
 
 # Socket.IO와 FastAPI를 통합한 ASGI 앱
 asgi_app = get_socketio_app(app)
