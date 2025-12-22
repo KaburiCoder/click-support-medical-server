@@ -12,6 +12,7 @@ from src.sio.features.medical.dto import (
     SummarizePatientRequest,
     VsNsSummaryResult,
     LabSummaryResult,
+    ClinicalSummaryResult,
 )
 
 
@@ -78,6 +79,7 @@ class MedicalNamespace(BaseNamespace):
       prescription_summary: Optional[PrescriptionSummaryResult] = result.get(
           "prescription_summary")
       lab_summary: Optional[LabSummaryResult] = result.get("lab_summary")
+      clinical_summary: Optional[ClinicalSummaryResult] = result.get("clinical_summary")
 
       response = PatientSummaryResponse(
           progress_notes_summary=progress_notes_summary,
@@ -85,6 +87,7 @@ class MedicalNamespace(BaseNamespace):
           prescription_summary=prescription_summary,
           lab_summary=lab_summary,
           radiology_summary=result.get('radiology_summary'),
+          clinical_summary=clinical_summary,
           law_data=LawData(vital_signs=data['vitalSigns'])
       )
       responses = await self.emit_with_ack(

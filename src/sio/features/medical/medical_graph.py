@@ -19,7 +19,8 @@ from src.sio.features.medical.dto import (
     PrescriptionSummaryResult, 
     LabSummaryResult, 
     RadiologyReport,
-    RadiologyAnalysisSummary, 
+    RadiologyAnalysisSummary,
+    ClinicalSummaryResult,
 )
 from src.sio.features.medical.models import NsModels, VsModel, VsModels
 
@@ -32,6 +33,7 @@ class MedicalGraphState(TypedDict, total=False):
   prescription_summary: PrescriptionSummaryResult
   lab_summary: LabSummaryResult
   radiology_summary: RadiologyAnalysisSummary
+  clinical_summary: ClinicalSummaryResult
 
 
 class Data(SummarizePatientRequest, total=False):
@@ -418,22 +420,214 @@ async def create_radiology_analysis_summary(state: MedicalGraphState) -> Medical
   
   return {"radiology_summary":  response['structured_response']}
 
+
+# ! === 종합 임상 요약 노드 (최종 병합) === #
+
+async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState:
+  """모든 분석 결과를 통합하여 진료실용 종합 임상 요약 생성"""
+  from datetime import datetime
+  
+  # 이전 노드들의 결과 수집
+  progress_notes = state.get('progress_notes_summary')
+  vs_ns = state.get('vs_ns_summary')
+  prescription = state.get('prescription_summary')
+  lab = state.get('lab_summary')
+  radiology = state.get('radiology_summary')
+  patient_info = state.get('data', {}).get('patientInfo', {})
+  
+  # 데이터 완전성 평가
+  data_sources = []
+  if progress_notes:
+    data_sources.append("경과기록")
+  if vs_ns:
+    data_sources.append("활력징후/간호기록")
+  if prescription:
+    data_sources.append("처방/투약")
+  if lab:
+    data_sources.append("검사결과")
+  if radiology:
+    data_sources.append("영상판독")
+  
+  data_completeness = "complete" if len(data_sources) >= 4 else "partial" if len(data_sources) >= 2 else "limited"
+  
+  # 환자 정보 컨텍스트
+  patient_context = f"""
+# 환자 정보
+- 이름: {patient_info.get('name', '미상')}
+- 성별: {patient_info.get('sex', '미상')}
+- 나이: {patient_info.get('age', '미상')}
+- 최근 방문일: {patient_info.get('lastVisitYmd', '미상')}
+""".strip()
+  
+  # 각 분석 결과 요약 컨텍스트 구성
+  analysis_context = ""
+  
+  # 1. 경과기록 요약
+  if progress_notes:
+    analysis_context += f"""
+---
+## 경과기록 분석 결과
+- **요약**: {progress_notes.summary}
+- **주진단**: {', '.join(progress_notes.main_diagnosis) if progress_notes.main_diagnosis else '없음'}
+- **주호소**: {progress_notes.chief_complaint or '없음'}
+- **SOAP**:
+  - Subjective: {progress_notes.soap.subjective or '없음'}
+  - Objective: {progress_notes.soap.objective or '없음'}
+  - Assessment: {progress_notes.soap.assessment or '없음'}
+  - Plan: {progress_notes.soap.plan or '없음'}
+- **주의사항**: {progress_notes.precautions or '없음'}
+"""
+  
+  # 2. 활력징후/간호기록 요약
+  if vs_ns:
+    analysis_context += f"""
+---
+## 활력징후 및 간호기록 분석 결과
+- **VS 점수**: {vs_ns.vs_score}/5
+- **VS 요약**: {vs_ns.vs_summary}
+- **간호기록 요약**: {vs_ns.ns_summary}
+- **전반적 위험도**: {vs_ns.overall_risk_level}
+- **핵심 권고**: {vs_ns.key_recommendation}
+- **임상 예측**:
+"""
+    for pred in vs_ns.clinical_predictions[:3]:
+      analysis_context += f"  - [{pred.timeframe}] {pred.predicted_risk}: {pred.recommended_action}\n"
+  
+  # 3. 처방 분석 요약
+  if prescription:
+    analysis_context += f"""
+---
+## 처방/투약 분석 결과
+- **약물 부담 지수**: {prescription.medication_burden_index}/100
+- **다약제 복용 분석**: {prescription.polypharmacy_analysis}
+- **PRN 패턴**: {prescription.prn_pattern_analysis}
+- **주요 투약약물**: {', '.join([med.medication_name for med in prescription.major_medications[:5]])}
+- **주요 상병**: {', '.join([diag.diagnosis_name for diag in prescription.major_diagnoses[:3]])}
+- **종합 평가**: {prescription.overall_assessment}
+- **숨은 위험 신호**: {', '.join(prescription.hidden_risk_signals[:3]) if prescription.hidden_risk_signals else '없음'}
+- **우선 권고**:
+"""
+    for rec in prescription.priority_recommendations[:3]:
+      analysis_context += f"  - {rec}\n"
+  
+  # 4. 검사 결과 요약
+  if lab:
+    analysis_context += f"""
+---
+## 검사 결과 분석
+- **검사 위험도**: {lab.lab_risk_level}
+- **최근 검사일**: {lab.latest_test_date}
+- **검사 횟수**: {lab.test_count}회
+- **종합 평가**: {lab.overall_assessment}
+- **우선 권고**: {lab.priority_recommendation}
+- **이상 항목 알림**:
+"""
+    for alert in lab.abnormality_alerts[:3]:
+      analysis_context += f"  - [{alert.priority}] {alert.test_name}: {alert.result_value} ({alert.clinical_significance})\n"
+  
+  # 5. 영상 판독 요약
+  if radiology and radiology.summary:
+    analysis_context += f"""
+---
+## 영상 판독 분석 결과
+- **주요 소견**: {radiology.summary.main_finding}
+- **임상적 의미**: {radiology.summary.clinical_significance}
+- **진행 분석**: {radiology.summary.progression_analysis}
+- **긴급 소견**: {', '.join(radiology.summary.urgent_findings) if radiology.summary.urgent_findings else '없음'}
+- **임상 의견**: {radiology.summary.clinical_opinion}
+"""
+    if radiology.integrated_analysis:
+      analysis_context += f"""- **통합 위험도**: {radiology.integrated_analysis.risk_level}
+- **통합 임상 의견**: {radiology.integrated_analysis.integrated_clinical_opinion}
+"""
+
+  system_prompt = """당신은 대학병원 수석 전문의이자 임상 의사결정 지원 전문가입니다.
+여러 임상 데이터 분석 결과를 통합하여 진료실 의료진이 즉시 활용할 수 있는 종합 임상 요약을 작성합니다.
+
+## 핵심 목표
+1. **즉각적 의사결정 지원**: 의료진이 환자 접촉 전 1분 내 핵심 파악 가능
+2. **우선순위 기반 알림**: 긴급성에 따른 조치 사항 명확화
+3. **위험 요소 시각화**: 복합적 위험을 직관적으로 전달
+4. **인계 효율화**: SBAR 형식의 명확한 상태 전달
+
+## 작성 원칙
+- 모든 분석 결과의 핵심만 추출하여 통합
+- 중복 정보 제거, 상충 정보는 더 신뢰할 수 있는 소스 우선
+- 불확실한 부분은 명시적으로 표기
+- 즉각적 조치 필요 사항 최우선 배치
+- 한 줄 요약은 의료진이 복도에서도 파악 가능한 수준
+
+## 응답 형식
+ClinicalSummaryResult 스키마를 정확히 따라 작성하세요.
+
+## 중요 지침
+- priority_alerts는 urgent > warning > attention > info 순으로 정렬
+- key_recommendations는 critical > high > medium > low 순으로 정렬
+- one_liner는 30자 이내로 핵심만 (예: "DM 조절 악화, 인슐린 조정 필요")
+- 데이터가 없는 영역은 제공된 정보 범위 내에서 합리적 추론, 단 신뢰도 반영
+"""
+
+  agent = create_agent(
+      model=llm_models.gemini_flash,
+      response_format=ClinicalSummaryResult,
+      system_prompt=system_prompt)
+
+  response = await agent.ainvoke({
+      "messages": [HumanMessage(content=f"""
+{patient_context}
+
+# 분석 결과 통합
+
+사용 가능한 데이터 소스: {', '.join(data_sources)}
+데이터 완전성: {data_completeness}
+
+{analysis_context}
+
+---
+# 요청사항
+위 모든 분석 결과를 종합하여 ClinicalSummaryResult 형식의 종합 임상 요약을 생성하세요.
+
+현재 분석 시점: {datetime.now().isoformat()}
+
+진료실 의료진이 환자를 보기 직전 1분 내에 전체 상황을 파악하고 
+핵심 조치사항을 인지할 수 있도록 작성해주세요.
+""".strip())]
+  })
+  
+  result: ClinicalSummaryResult = response['structured_response']
+  
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="clinical_summary"))
+  
+  return {"clinical_summary": result}
+
+
 # ! === Define the workflow structure === #
+# 병렬 처리 노드
 builder.add_node('create_progressnote_summary', create_progressnote_summary)
 builder.add_node('create_ns_vs_summary', create_ns_vs_summary)
 builder.add_node('create_prescription_summary', create_prescription_summary)
 builder.add_node('create_lab_summary', create_lab_summary)
 builder.add_node('create_radiology_analysis_summary', create_radiology_analysis_summary)
 
+# 최종 통합 노드
+builder.add_node('create_clinical_summary', create_clinical_summary)
+
+# 시작 -> 병렬 처리
 builder.add_edge(START, 'create_progressnote_summary')
 builder.add_edge(START, 'create_ns_vs_summary')
 builder.add_edge(START, 'create_prescription_summary')
 builder.add_edge(START, 'create_lab_summary')
 builder.add_edge(START, 'create_radiology_analysis_summary')
 
-builder.add_edge('create_progressnote_summary', END)
-builder.add_edge('create_ns_vs_summary', END)
-builder.add_edge('create_prescription_summary', END)
-builder.add_edge('create_lab_summary', END)
-builder.add_edge('create_radiology_analysis_summary', END)
+# 병렬 처리 -> 최종 통합
+builder.add_edge('create_progressnote_summary', 'create_clinical_summary')
+builder.add_edge('create_ns_vs_summary', 'create_clinical_summary')
+builder.add_edge('create_prescription_summary', 'create_clinical_summary')
+builder.add_edge('create_lab_summary', 'create_clinical_summary')
+builder.add_edge('create_radiology_analysis_summary', 'create_clinical_summary')
+
+# 최종 통합 -> 종료
+builder.add_edge('create_clinical_summary', END)
+
 workflow = builder.compile()

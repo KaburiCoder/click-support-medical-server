@@ -7,7 +7,7 @@ type LoadingStatus = Literal["processing", "done"]
 type LoadingCompleteTarget = Literal[
     "progress_notes", "ns_vs",
     "prescriptions", "labs",
-    "radiology"]
+    "radiology", "clinical_summary"]
 
 
 class Loading(CamelModel):
