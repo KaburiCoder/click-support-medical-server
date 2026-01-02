@@ -1,6 +1,7 @@
 {
   "version": "0.2.0",
   "configurations": [
+    
     {
       "name": "Python: FastAPI (Debug)",
       "type": "debugpy",
@@ -16,7 +17,10 @@
       ],
       "console": "integratedTerminal",
       "justMyCode": true,
-      "stopOnEntry": false
+      "stopOnEntry": false,
+      "env": {
+        "DEBUG": "true"
+      }
     }
   ]
 }

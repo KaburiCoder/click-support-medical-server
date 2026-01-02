@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
   debug: bool = False
+  APP_ENV:  str | None = None
   DATABASE_URL: str = ""
 
   model_config = {
