@@ -1,5 +1,7 @@
 """의료 관련 네임스페이스"""
-from typing import get_type_hints, Optional
+from typing import Optional
+
+from loguru import logger
 from src.sio.config import sio
 from src.sio.base import BaseNamespace
 from src.sio.features.medical import medical_graph
@@ -15,7 +17,6 @@ from src.sio.features.medical.dto import (
     ClinicalSummaryResult,
 )
 
-
 class MedicalNamespace(BaseNamespace):
   """의료 관련 네임스페이스"""
 
@@ -27,17 +28,17 @@ class MedicalNamespace(BaseNamespace):
     @sio.event(namespace=self.namespace)
     async def connect(sid: str, environ: dict):
       """클라이언트가 /medical 네임스페이스에 연결"""
-      print(f"[{self.namespace}] 클라이언트 연결: {sid}")
+      logger.info(f"[{self.namespace}] 클라이언트 연결: {sid}")
 
     @sio.event(namespace=self.namespace)
     async def disconnect(sid: str):
       """클라이언트가 /medical 네임스페이스에서 연결 해제"""
-      print(f"[{self.namespace}] 클라이언트 연결 해제: {sid}")
+      logger.info(f"[{self.namespace}] 클라이언트 연결 해제: {sid}")
 
     @sio.event(namespace=self.namespace)
     async def join_room(sid: str, room: str):
       """클라이언트를 특정 룸에 참여시키기"""
-      print(f"[{self.namespace}] join_room - sid: {sid}, room: {room}")
+      logger.info(f"[{self.namespace}] join_room - sid: {sid}, room: {room}")
       await self.enter_room(sid, room)
 
       return True
@@ -45,13 +46,13 @@ class MedicalNamespace(BaseNamespace):
     @sio.event(namespace=self.namespace)
     async def leave_room(sid: str, room: str):
       """클라이언트를 특정 룸에서 나가기"""
-      print(f"[{self.namespace}] leave_room - sid: {sid}, room: {room}")
+      logger.info(f"[{self.namespace}] leave_room - sid: {sid}, room: {room}")
       await self.leave_room(sid, room)
 
     @sio.event(namespace=self.namespace)
     async def summarize_patient(sid: str, to: str, data: SummarizePatientRequest):
       """환자 요약 정보 요청"""
-      print(
+      logger.info(
           f"[{self.namespace}] summarize_patient - sid: {sid}, patient_id: {to}, data: {data}")
 
       # 환자 정보 전송
@@ -98,12 +99,12 @@ class MedicalNamespace(BaseNamespace):
       # 완료 상태 전송
       await send_loading(Loading(status="done"))
 
-      print(f"[{self.namespace}] room 응답 결과: {responses}")
+      logger.info(f"[{self.namespace}] room 응답 결과: {responses}")
 
     @sio.event(namespace=self.namespace)
     async def query_radiology_analysis(sid: str, to: str, data: SummarizePatientRequest):
       """방사선 판독 분석만 단독으로 쿼리"""
-      print(
+      logger.info(
           f"[{self.namespace}] query_radiology_analysis - sid: {sid}, patient_id: {to}")
 
       # === 로딩 상태 전송 함수 정의 ===
@@ -138,5 +139,5 @@ class MedicalNamespace(BaseNamespace):
         await send_loading(Loading(status="done"))
 
       except Exception as e:
-        print(f"[{self.namespace}] query_radiology_analysis 오류: {str(e)}")
+        logger.error(f"[{self.namespace}] query_radiology_analysis 오류: {str(e)}")
         await self.emit("error", {"message": str(e)}, room=to)

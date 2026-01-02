@@ -1,9 +1,10 @@
 """Socket.IO 네임스페이스 등록"""
 
+import sys
 from src.sio import DefaultNamespace, MedicalNamespace
 from src.sio.base import BaseNamespace
-
-
+from loguru import logger
+ 
 def register_all_namespaces() -> None:
   """모든 네임스페이스 등록"""
   namespaces: list[BaseNamespace] = [
@@ -13,4 +14,4 @@ def register_all_namespaces() -> None:
 
   for ns in namespaces:
     ns.register_events()
-    print(f"네임스페이스 등록됨: {ns.namespace}")
+    logger.info(f"네임스페이스 등록됨: {ns.namespace}")

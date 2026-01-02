@@ -2,7 +2,9 @@ import sys
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 from src.core.exceptions.handlers import register_exception_handlers
+from src.core.logging_conf import setup_loguru
 from src.sio import get_socketio_app, register_all_namespaces
 
 if sys.platform != "win32":
@@ -10,21 +12,22 @@ if sys.platform != "win32":
   import uvloop
   asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
+setup_loguru()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
   # 시작할 때 리소스 초기화
-  print("애플리케이션 시작: 모델 로딩 중...")
+  logger.info("애플리케이션 시작: 모델 로딩 중...") 
 
   # Socket.IO 이벤트 설정
   register_all_namespaces()
-  print("Socket.IO 설정 완료")
+  logger.info("Socket.IO 설정 완료")
 
   yield  # FastAPI 애플리케이션 실행
 
   # 종료할 때 리소스 정리
-  print("애플리케이션 종료: 리소스 정리 중...")
-  print("정리 완료")
+  logger.info("애플리케이션 종료: 리소스 정리 중...")
+  logger.info("정리 완료")
 
 app = FastAPI(
     title="프로젝트 이름",

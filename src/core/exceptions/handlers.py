@@ -1,14 +1,11 @@
 """
 FastAPI 전역 Exception Handler
 """
-import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.core.exceptions import AppException
-from fastapi.exceptions import RequestValidationError
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def register_exception_handlers(app: FastAPI) -> None:
