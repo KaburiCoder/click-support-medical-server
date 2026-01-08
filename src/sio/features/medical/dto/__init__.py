@@ -3,3 +3,4 @@ from .medical_request import *
 from .loading import *
 from .radiology_dto import *
 from .clinical_summary_dto import *
+from .surgery_summary_dto import *

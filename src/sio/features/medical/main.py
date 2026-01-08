@@ -15,6 +15,7 @@ from src.sio.features.medical.dto import (
     VsNsSummaryResult,
     LabSummaryResult,
     ClinicalSummaryResult,
+  SurgerySummaryResult,
 )
 
 class MedicalNamespace(BaseNamespace):
@@ -80,6 +81,7 @@ class MedicalNamespace(BaseNamespace):
       prescription_summary: Optional[PrescriptionSummaryResult] = result.get(
           "prescription_summary")
       lab_summary: Optional[LabSummaryResult] = result.get("lab_summary")
+      surgery_summary: Optional[SurgerySummaryResult] = result.get("surgery_summary")
       clinical_summary: Optional[ClinicalSummaryResult] = result.get("clinical_summary")
 
       response = PatientSummaryResponse(
@@ -88,6 +90,7 @@ class MedicalNamespace(BaseNamespace):
           prescription_summary=prescription_summary,
           lab_summary=lab_summary,
           radiology_summary=result.get('radiology_summary'),
+          surgery_summary=surgery_summary,
           clinical_summary=clinical_summary,
           law_data=LawData(vital_signs=data['vitalSigns'])
       )

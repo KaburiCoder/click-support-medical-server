@@ -5,6 +5,7 @@ from src.common import CamelModel
 from src.sio.features.medical.dto.medical_request import VitalSign
 from src.sio.features.medical.dto.radiology_dto import RadiologyAnalysisSummary
 from src.sio.features.medical.dto.clinical_summary_dto import ClinicalSummaryResult
+from src.sio.features.medical.dto.surgery_summary_dto import SurgerySummaryResult
 
 
 class SOAP(CamelModel):
@@ -286,6 +287,8 @@ class PatientSummaryResponse(CamelModel):
       None, description="검사 결과 요약 정보")
   radiology_summary: Optional[RadiologyAnalysisSummary] = Field(
       None, description="방사선 판독 분석 요약 정보 (방사선 데이터 있을 시)")
+  surgery_summary: Optional[SurgerySummaryResult] = Field(
+      None, description="수술/술전/술후 경과 요약 정보")
   clinical_summary: Optional[ClinicalSummaryResult] = Field(
       None, description="종합 임상 요약 정보")
   law_data: LawData

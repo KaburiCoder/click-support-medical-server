@@ -20,6 +20,7 @@ from src.sio.features.medical.dto import (
     LabSummaryResult, 
     RadiologyReport,
     RadiologyAnalysisSummary,
+    SurgerySummaryResult,
     ClinicalSummaryResult,
 )
 from src.sio.features.medical.models import NsModels, VsModel, VsModels
@@ -33,6 +34,7 @@ class MedicalGraphState(TypedDict, total=False):
   prescription_summary: PrescriptionSummaryResult
   lab_summary: LabSummaryResult
   radiology_summary: RadiologyAnalysisSummary
+  surgery_summary: SurgerySummaryResult
   clinical_summary: ClinicalSummaryResult
 
 
@@ -68,6 +70,154 @@ async def create_progressnote_summary(state: MedicalGraphState) -> MedicalGraphS
     await state['send_loading'](Loading(complete_target="progress_notes"))
 
   return {"progress_notes_summary": result}
+
+
+async def create_surgery_summary(state: MedicalGraphState) -> MedicalGraphState:
+  """경과기록 내 수술/술전/술후 기록을 추출해 급성기 진료 의사에게 유용한 요약을 생성"""
+
+  progress_notes = state.get('data', {}).get('progressNotes', [])
+  patient_info = state.get('data', {}).get('patientInfo', {})
+  diagnosis_records = state.get('data', {}).get('diagnosisRecords', [])
+  medications = state.get('data', {}).get('medications', [])
+  labs = state.get('data', {}).get('labs', [])
+  vss = state.get('data', {}).get('vitalSigns', [])
+
+  if not progress_notes:
+    return {}
+
+  # 수술 관련 키워드 기반 1차 필터링 (토큰 절약 + 정밀도)
+  keywords = [
+      "수술", "술전", "perioperative", "peri-op", "마취", "전신", "국소", "spinal",
+      "OP", "OR", "postop", "post-op", "preop", "pre-op", "수술실", "절개",
+      "봉합", "드레싱", "배액", "출혈", "혈전", "DVT", "PE", "항응고", "금식",
+      "NPO", "항생제", "통증", "PCA", "RAT", "risk assessment", "협진",
+  ]
+
+  def is_surgery_related(text: str) -> bool:
+    t = (text or "").lower()
+    return any(k.lower() in t for k in keywords)
+
+  surgery_related = [
+      r for r in progress_notes
+      if is_surgery_related(r.get('progress', ''))
+  ]
+
+  # 최근성도 반영: 수술 관련이 너무 적으면 최근 기록 일부를 보강
+  recent_fallback = sorted(progress_notes, key=lambda x: (x.get('ymd', ''), x.get('time', '')), reverse=True)[:8]
+  merged = surgery_related + [r for r in recent_fallback if r not in surgery_related]
+  merged = sorted(merged, key=lambda x: (x.get('ymd', ''), x.get('time', '')))
+
+  histories = [
+      f"**일시**: {ymd_to_date(r['ymd'])} {hm_to_time(r['time'])}\n**기록**: {r['progress']}"
+      for r in merged
+      if r.get('ymd') and r.get('time')
+  ]
+  progress_text = "\n\n---\n".join(histories) if histories else "수술 관련 경과기록 없음"
+
+  patient_context = f"""
+# 환자 정보
+- 이름: {patient_info.get('name', '')}
+- 성별: {patient_info.get('sex', '')}
+- 나이: {patient_info.get('age', '')}
+- 최근 방문일: {patient_info.get('lastVisitYmd', '')}
+""".strip()
+
+  diagnosis_text = ""
+  if diagnosis_records:
+    diagnosis_lines = []
+    for diag_record in diagnosis_records[:5]:
+      diagnoses = diag_record.get('diagnoses', [])
+      diagnoses_str = ", ".join([f"{d.get('diagnosisName', '')} ({d.get('icdCode', '')})" for d in diagnoses])
+      diagnosis_lines.append(f"- {diag_record.get('ymd', '')}: {diagnoses_str}")
+    diagnosis_text = "\n".join(diagnosis_lines) if diagnosis_lines else "없음"
+  else:
+    diagnosis_text = "없음"
+
+  medication_context = "없음"
+  if medications:
+    meds = []
+    for med in medications[:10]:
+      meds.append(
+          f"- {med.get('medicationName', '')}: {med.get('dose', '')} x {med.get('frequency', '')}회/일 ({med.get('sYmd', '')}~{med.get('eYmd', '')})"
+      )
+    medication_context = "\n".join(meds)
+
+  vital_signs_context = "없음"
+  if vss:
+    vs_list = VsModels()
+    vs_list.add_recently_from_vss(vss)
+    vital_signs_context = vs_list.get_markdown_table()
+
+  lab_context = "없음"
+  if labs:
+    # 상위 10개만 간단히 제공
+    lab_context = "\n".join([
+        f"- {lab.get('testName', '')} ({lab.get('subTestName', '')}): {lab.get('resultValue', '')} {lab.get('unit', '')} (정상: {lab.get('normalRange', '')})"
+        for lab in labs[:10]
+    ])
+
+  system_prompt = """당신은 급성기(응급/입원) 진료를 하는 전문의이며, 수술 전후 환자 관리(Perioperative medicine)에 매우 능숙합니다.
+
+입력으로는 '경과기록(progress notes)'이 중심이며, 보조로 환자 기본정보/진단/투약/바이탈/검사 일부가 제공됩니다.
+목표는 '수술/시술'이 있는지 빠르게 판별하고, 급성기 의사가 지금 당장 필요한 내용을 정리해주는 것입니다.
+
+반드시 포함할 것:
+1) 수술 관련 여부(has_surgery_related_content) 판단
+2) 수술/술전/술후의 핵심 요약(overview) + 한 줄 요약(one_liner)
+3) 수술 케이스(cases): 수술명/부위/상태(planned/performed/unknown)/마취/적응증/날짜 추정/술전·술후 핵심
+4) 타임라인(timeline): 시간순으로 중요한 이벤트를 5~12개 내외로 정리
+  - 각 항목에 course_trend(improving/stable/worsening/unknown) 포함
+  - 데이터로 판단이 어려우면 unknown
+5) 위험 신호(key_risks): 급성기에서 놓치면 위험한 항목(기도/심혈관/출혈/감염/혈전/약물/신장/혈당 등)
+6) 즉시 조치(immediate_actions): '확인해야 할 질문/오더/협진/관찰' 중심으로 실행 가능하게
+7) 약물 주의(periop_medication_notes): 금식, 항응고/항혈소판, 인슐린/경구혈당강하, NSAID 등 일반적 원칙을 적용하되
+   환자 데이터가 부족하면 '추가 확인 필요'로 표현
+
+규칙:
+- 정보가 없으면 추측하지 말고 '확인 필요' 또는 빈 리스트로 둡니다.
+- 케이스가 여러 개면 가장 최근/중요한 순으로 정렬합니다.
+- 타임라인은 가급적 yyyy-MM-dd HH:mm:ss를 사용하고, 불명확하면 yyyy-MM-dd 또는 원문 그대로 둡니다.
+- course_trend는 '통증/발열/호흡/출혈/활력징후/검사/합병증' 등의 키워드와 맥락으로만 판단합니다.
+- 근거가 있으면 course_trend_reason에 짧게 요약하고, 없으면 생략합니다.
+"""
+
+  agent = create_agent(
+      model=llm_models.gemini_flash,
+      response_format=SurgerySummaryResult,
+      system_prompt=system_prompt)
+
+  response = await agent.ainvoke({
+      "messages": [HumanMessage(content=f"""
+{patient_context}
+
+---
+# 최근 진단(상위)
+{diagnosis_text}
+
+---
+# 투약 정보(일부)
+{medication_context}
+
+---
+# 활력징후(요약표)
+{vital_signs_context}
+
+---
+# 검사 결과(일부)
+{lab_context}
+
+---
+# 경과기록(수술 관련 추정 + 최근 보강)
+{progress_text}
+""".strip())]
+  })
+
+  result: SurgerySummaryResult = response['structured_response']
+
+  if 'send_loading' in state:
+    await state['send_loading'](Loading(complete_target="surgery"))
+
+  return {"surgery_summary": result}
 
 
 async def create_ns_vs_summary(state: MedicalGraphState) -> MedicalGraphState:
@@ -433,6 +583,7 @@ async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState
   prescription = state.get('prescription_summary')
   lab = state.get('lab_summary')
   radiology = state.get('radiology_summary')
+  surgery = state.get('surgery_summary')
   patient_info = state.get('data', {}).get('patientInfo', {})
   
   # 데이터 완전성 평가
@@ -447,6 +598,8 @@ async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState
     data_sources.append("검사결과")
   if radiology:
     data_sources.append("영상판독")
+  if surgery:
+    data_sources.append("수술/술전/술후")
   
   data_completeness = "complete" if len(data_sources) >= 4 else "partial" if len(data_sources) >= 2 else "limited"
   
@@ -541,6 +694,19 @@ async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState
 - **통합 임상 의견**: {radiology.integrated_analysis.integrated_clinical_opinion}
 """
 
+  # 6. 수술/술전/술후 요약
+  if surgery and surgery.has_surgery_related_content:
+    analysis_context += f"""
+---
+## 수술/술전/술후 요약
+- **한 줄 요약**: {surgery.one_liner}
+- **개요**: {surgery.overview}
+- **즉시 조치**: {', '.join(surgery.immediate_actions[:5]) if surgery.immediate_actions else '없음'}
+- **주요 위험**:
+"""
+    for risk in surgery.key_risks[:5]:
+      analysis_context += f"  - [{risk.severity}] ({risk.category}) {risk.message} / 조치: {risk.recommended_action or '확인 필요'}\n"
+
   system_prompt = """당신은 대학병원 수석 전문의이자 임상 의사결정 지원 전문가입니다.
 여러 임상 데이터 분석 결과를 통합하여 진료실 의료진이 즉시 활용할 수 있는 종합 임상 요약을 작성합니다.
 
@@ -605,6 +771,7 @@ ClinicalSummaryResult 스키마를 정확히 따라 작성하세요.
 # ! === Define the workflow structure === #
 # 병렬 처리 노드
 builder.add_node('create_progressnote_summary', create_progressnote_summary)
+builder.add_node('create_surgery_summary', create_surgery_summary)
 builder.add_node('create_ns_vs_summary', create_ns_vs_summary)
 builder.add_node('create_prescription_summary', create_prescription_summary)
 builder.add_node('create_lab_summary', create_lab_summary)
@@ -615,6 +782,7 @@ builder.add_node('create_clinical_summary', create_clinical_summary)
 
 # 시작 -> 병렬 처리
 builder.add_edge(START, 'create_progressnote_summary')
+builder.add_edge(START, 'create_surgery_summary')
 builder.add_edge(START, 'create_ns_vs_summary')
 builder.add_edge(START, 'create_prescription_summary')
 builder.add_edge(START, 'create_lab_summary')
@@ -622,6 +790,7 @@ builder.add_edge(START, 'create_radiology_analysis_summary')
 
 # 병렬 처리 -> 최종 통합
 builder.add_edge('create_progressnote_summary', 'create_clinical_summary')
+builder.add_edge('create_surgery_summary', 'create_clinical_summary')
 builder.add_edge('create_ns_vs_summary', 'create_clinical_summary')
 builder.add_edge('create_prescription_summary', 'create_clinical_summary')
 builder.add_edge('create_lab_summary', 'create_clinical_summary')
