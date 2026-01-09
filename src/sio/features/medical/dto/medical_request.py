@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from src.sio.features.medical.dto.radiology_dto import RadiologyReport
 
 class PatientInfo(TypedDict):
@@ -74,3 +74,9 @@ class SummarizePatientRequest(TypedDict):
   diagnosisRecords: list[DiagnosisRecord]
   labs: list[Lab]
   radiologyReports: list[RadiologyReport]
+
+  # === 추가 입력 메모 (선택) ===
+  # - 기존 클라이언트 호환을 위해 optional(NotRequired)로 둡니다.
+  mainSymptoms: NotRequired[str]       # 주요증상
+  specialNotes: NotRequired[str]      # 특이사항
+  wardNotes: NotRequired[str]         # 병동 참고사항

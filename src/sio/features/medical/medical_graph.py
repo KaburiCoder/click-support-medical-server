@@ -50,6 +50,11 @@ async def create_progressnote_summary(state: MedicalGraphState) -> MedicalGraphS
   if not progressNotes:
     return {}
 
+  # 추가 입력 메모
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
+
   histories = [
       f"**일시**: {ymd_to_date(r['ymd'])} {hm_to_time(r['time'])}\n**경과기록**: {r['progress']}"
       for r in progressNotes
@@ -59,9 +64,15 @@ async def create_progressnote_summary(state: MedicalGraphState) -> MedicalGraphS
       response_format=ProgressNoteResult,
       system_prompt="당신은 의사입니다. 환자의 경과기록을 가지고 필요한 정보를 입력합니다.")
 
+  input_notes_context = f"""# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
+"""
+
   progressnote_history_text = "\n\n---\n".join(histories)
   response = await agent.ainvoke({
-      "messages": [HumanMessage(content=progressnote_history_text)]
+      "messages": [HumanMessage(content=f"""{input_notes_context}\n\n---\n# 경과기록\n{progressnote_history_text}""")]
   })
 
   result: ProgressNoteResult = response['structured_response']
@@ -82,8 +93,10 @@ async def create_surgery_summary(state: MedicalGraphState) -> MedicalGraphState:
   labs = state.get('data', {}).get('labs', [])
   vss = state.get('data', {}).get('vitalSigns', [])
 
-  if not progress_notes:
-    return {}
+  # 추가 입력 메모(선택)
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
 
   # 수술 관련 키워드 기반 1차 필터링 (토큰 절약 + 정밀도)
   keywords = [
@@ -120,6 +133,14 @@ async def create_surgery_summary(state: MedicalGraphState) -> MedicalGraphState:
 - 성별: {patient_info.get('sex', '')}
 - 나이: {patient_info.get('age', '')}
 - 최근 방문일: {patient_info.get('lastVisitYmd', '')}
+""".strip()
+
+  input_notes_context = f"""
+---
+# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
 """.strip()
 
   diagnosis_text = ""
@@ -190,6 +211,8 @@ async def create_surgery_summary(state: MedicalGraphState) -> MedicalGraphState:
       "messages": [HumanMessage(content=f"""
 {patient_context}
 
+{input_notes_context}
+
 ---
 # 최근 진단(상위)
 {diagnosis_text}
@@ -239,6 +262,11 @@ async def create_ns_vs_summary(state: MedicalGraphState) -> MedicalGraphState:
   if not vss and not nss:
     return {}
 
+  # 추가 입력 메모
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
+
   agent = create_agent(
       model=llm_models.gemini_flash,
       response_format=VsNsSummaryResult,
@@ -253,8 +281,14 @@ async def create_ns_vs_summary(state: MedicalGraphState) -> MedicalGraphState:
 
 활력징후와 간호기록은 각각 마크다운 표 형식으로 제공됩니다.""")
 
+  input_notes_context = f"""# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
+"""
+
   response = await agent.ainvoke({
-      "messages": [HumanMessage(content=f"""# 활력징후 기록
+      "messages": [HumanMessage(content=f"""{input_notes_context}\n\n---\n# 활력징후 기록
 {vs_list_md}
 
 ---
@@ -277,6 +311,11 @@ async def create_prescription_summary(state: MedicalGraphState) -> MedicalGraphS
 
   if not medications and not diagnosis_records and not patient_info:
     return {}
+
+  # 추가 입력 메모
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
 
   # 환자 성별 나이
   patient_info_text = f"""
@@ -325,8 +364,17 @@ async def create_prescription_summary(state: MedicalGraphState) -> MedicalGraphS
       response_format=PrescriptionSummaryResult,
       system_prompt=system_prompt)
 
+  input_notes_context = f"""# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
+"""
+
   response = await agent.ainvoke({
       "messages": [HumanMessage(content=f"""
+{input_notes_context}
+
+---
 # 환자 정보
 {patient_info_text}
 
@@ -355,6 +403,11 @@ async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
 
   if not labs:
     return {}
+
+  # 추가 입력 메모
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
 
   # 환자 기본 정보
   patient_info_text = f"""
@@ -407,8 +460,17 @@ async def create_lab_summary(state: MedicalGraphState) -> MedicalGraphState:
       response_format=LabSummaryResult,
       system_prompt=system_prompt)
 
+  input_notes_context = f"""# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
+"""
+
   response = await agent.ainvoke({
       "messages": [HumanMessage(content=f"""
+{input_notes_context}
+
+---
 # 환자 정보
 {patient_info_text}
 
@@ -448,6 +510,11 @@ async def create_radiology_analysis_summary(state: MedicalGraphState) -> Medical
   reports: list[RadiologyReport] = state.get('data', {}).get('radiologyReports', [])
   if not reports:
     return {}
+  
+  # 추가 입력 메모
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
   
   patient_info = state.get('data', {}).get('patientInfo', {})
   patient_context = f"{patient_info.get('name', '')} ({patient_info.get('sex', '')}/{patient_info.get('age', '')})"
@@ -495,6 +562,12 @@ async def create_radiology_analysis_summary(state: MedicalGraphState) -> Medical
   sorted_reports = sorted(reports, key=lambda x: x['ymd'])
   
   # === 통합 프롬프트 구성 ===
+  input_notes_context = f"""## 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
+"""
+
   unified_prompt = f"""
 # 종합 방사선 판독 분석
 
@@ -502,6 +575,8 @@ async def create_radiology_analysis_summary(state: MedicalGraphState) -> Medical
 {patient_context}
 {single_exam_context}
 {progression_context}
+
+{input_notes_context}
 
 ## [통합 임상 분석 데이터]
 ### 활력징후
@@ -585,6 +660,10 @@ async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState
   radiology = state.get('radiology_summary')
   surgery = state.get('surgery_summary')
   patient_info = state.get('data', {}).get('patientInfo', {})
+
+  main_symptoms = (state.get('data', {}) or {}).get('mainSymptoms', '')
+  special_notes = (state.get('data', {}) or {}).get('specialNotes', '')
+  ward_notes = (state.get('data', {}) or {}).get('wardNotes', '')
   
   # 데이터 완전성 평가
   data_sources = []
@@ -610,6 +689,11 @@ async def create_clinical_summary(state: MedicalGraphState) -> MedicalGraphState
 - 성별: {patient_info.get('sex', '미상')}
 - 나이: {patient_info.get('age', '미상')}
 - 최근 방문일: {patient_info.get('lastVisitYmd', '미상')}
+
+# 추가 입력 메모
+- 주요증상: {main_symptoms or '없음'}
+- 특이사항: {special_notes or '없음'}
+- 병동 참고사항: {ward_notes or '없음'}
 """.strip()
   
   # 각 분석 결과 요약 컨텍스트 구성
